@@ -5,7 +5,7 @@
 
 -- update_updated_at_column is attached as a BEFORE UPDATE trigger on
 -- every mutable table. It is the single implementation of the
--- updated_at invariant — no table manages this timestamp manually.
+-- updated_at invariant - no table manages this timestamp manually.
 CREATE
 OR REPLACE FUNCTION public.update_updated_at_column() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
@@ -28,7 +28,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- generate_account_id is a BEFORE INSERT trigger that assigns a
--- human-readable 12-digit account_id (100000000000–999999999999).
+-- human-readable 12-digit account_id (100000000000-999999999999).
 -- It rejects patterned numbers to prevent IDs that look like phone
 -- numbers or that are trivially guessable, retrying up to 20 times.
 CREATE
@@ -166,7 +166,7 @@ $$ LANGUAGE plpgsql;
 
 -- prevent_account_id_update enforces immutability of account_id after
 -- creation. account_id is the user-facing identifier shared with
--- support and used in referral flows — it must never change.
+-- support and used in referral flows - it must never change.
 CREATE
 OR REPLACE FUNCTION public.prevent_account_id_update() RETURNS TRIGGER AS $$
 BEGIN
@@ -276,7 +276,7 @@ COMMENT ON FUNCTION public.prevent_update_created_at() IS 'BEFORE UPDATE trigger
 
 COMMENT ON FUNCTION public.generate_account_id() IS 'BEFORE INSERT trigger that generates a unique 12-digit account_id in [100000000000, 999999999999]. Rejects IDs with 5+ identical digits, 5+ consecutive identical digits, 6+ ascending or descending runs, or a repeating 2-digit pattern, to avoid IDs that resemble phone numbers or are trivially guessable. Retries up to 20 times.';
 
-COMMENT ON FUNCTION public.prevent_account_id_update() IS 'BEFORE UPDATE trigger body that raises an exception if account_id is changed. account_id is the user-facing identifier — it must never change after creation.';
+COMMENT ON FUNCTION public.prevent_account_id_update() IS 'BEFORE UPDATE trigger body that raises an exception if account_id is changed. account_id is the user-facing identifier - it must never change after creation.';
 
 COMMENT ON FUNCTION public.validate_weekdays(JSONB) IS 'Returns TRUE when the input is a JSONB array of integers in [1,7] (1=Monday, 7=Sunday, ISO 8601). Used in CHECK constraints on trip_patterns.weekdays. IMMUTABLE.';
 
@@ -284,15 +284,15 @@ COMMENT ON FUNCTION public.validate_custom_dates(JSONB) IS 'Returns TRUE when th
 
 -- prevent_status_history_update is a BEFORE UPDATE trigger body shared
 -- by every `*_status_history` and `*_role_history` audit table in the
--- schema. Status-history rows are append-only — a corrective entry is
--- INSERTed, never an UPDATE — so the trigger raises unconditionally.
+-- schema. Status-history rows are append-only - a corrective entry is
+-- INSERTed, never an UPDATE - so the trigger raises unconditionally.
 -- Lives here (not next to a single history table) because eleven
 -- migrations reference it.
 CREATE OR REPLACE FUNCTION public.prevent_status_history_update() RETURNS TRIGGER AS $$
 BEGIN
     RAISE EXCEPTION
         'Updates to status-history tables are not allowed. '
-        'History rows are immutable — insert a corrective row instead.';
+        'History rows are immutable - insert a corrective row instead.';
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -311,6 +311,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION public.prevent_status_history_update() IS 'BEFORE UPDATE trigger body shared by every *_status_history and *_role_history audit table. Raises unconditionally — history rows are append-only and corrective entries must be inserted as new rows.';
+COMMENT ON FUNCTION public.prevent_status_history_update() IS 'BEFORE UPDATE trigger body shared by every *_status_history and *_role_history audit table. Raises unconditionally - history rows are append-only and corrective entries must be inserted as new rows.';
 
-COMMENT ON FUNCTION public.prevent_history_delete() IS 'BEFORE DELETE trigger body shared by rides.trip_status_history and rides.booking_status_history. Raises unconditionally — history rows must never be physically deleted; the audit trail is permanent.';
+COMMENT ON FUNCTION public.prevent_history_delete() IS 'BEFORE DELETE trigger body shared by rides.trip_status_history and rides.booking_status_history. Raises unconditionally - history rows must never be physically deleted; the audit trail is permanent.';

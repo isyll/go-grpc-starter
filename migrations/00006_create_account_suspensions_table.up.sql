@@ -12,18 +12,10 @@ DO $$ BEGIN
         CREATE TYPE auth.suspension_reason AS ENUM (
             'terms_violation',
             'fraudulent_activity',
-            'payment_issues',
-            'identity_verification_failed',
             'harassment',
-            'inappropriate_behavior',
-            'safety_concerns',
             'spam',
-            'fake_account',
-            'multiple_accounts',
-            'repeated_cancellations',
-            'poor_ratings',
-            'legal_request',
             'security_breach',
+            'legal_request',
             'other'
         );
     END IF;
@@ -32,15 +24,15 @@ END $$;
 COMMENT ON TYPE auth.suspension_reason IS
 'Standardized reason codes for account suspensions. Used by trust-and-safety to
 classify bans for analytics and appeal workflows.
-Values: terms_violation — generic ToS breach; fraudulent_activity — fake
-listings or payments; payment_issues — unresolved disputes; identity_verification_failed
-— did not pass KYC; harassment — towards passengers or drivers; inappropriate_behavior
-— conduct violations; safety_concerns — risk to other users; spam — mass
-messaging or fake listings; fake_account — identity impersonation; multiple_accounts
-— operating more than one account; repeated_cancellations — pattern of
-last-minute cancellations; poor_ratings — sustained sub-threshold score;
-legal_request — government or law-enforcement order; security_breach — compromised
-account; other — catch-all pending reclassification.';
+Values: terms_violation - generic ToS breach; fraudulent_activity - fake
+listings or payments; payment_issues - unresolved disputes; identity_verification_failed
+- did not pass KYC; harassment - towards passengers or drivers; inappropriate_behavior
+- conduct violations; safety_concerns - risk to other users; spam - mass
+messaging or fake listings; fake_account - identity impersonation; multiple_accounts
+- operating more than one account; repeated_cancellations - pattern of
+last-minute cancellations; poor_ratings - sustained sub-threshold score;
+legal_request - government or law-enforcement order; security_breach - compromised
+account; other - catch-all pending reclassification.';
 
 CREATE TABLE IF NOT EXISTS auth.account_suspensions (
   id BIGSERIAL PRIMARY KEY,

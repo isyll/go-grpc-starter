@@ -44,7 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_outbox_payload ON events.outbox USING GIN (payloa
 -- Deduplication guard: collapse double-publishes from buggy services
 -- before they reach the drain. A pending row (processed_at IS NULL)
 -- with the same (event_type, dedupe_key) cannot be inserted twice.
--- Once the original is processed, a fresh publish is allowed — the
+-- Once the original is processed, a fresh publish is allowed - the
 -- caller decides whether to reuse the same key.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_outbox_pending_dedupe
 ON events.outbox (event_type, dedupe_key)

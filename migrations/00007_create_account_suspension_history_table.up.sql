@@ -30,7 +30,7 @@ ON auth.account_suspension_history (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_account_suspension_history_suspension_id
 ON auth.account_suspension_history (suspension_id, created_at DESC);
 
--- Deny all UPDATE and DELETE — rows are immutable once written.
+-- Deny all UPDATE and DELETE - rows are immutable once written.
 DROP TRIGGER IF EXISTS deny_account_suspension_history_update
 ON auth.account_suspension_history;
 CREATE TRIGGER deny_account_suspension_history_update

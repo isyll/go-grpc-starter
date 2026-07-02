@@ -21,7 +21,7 @@ CREATE INDEX IF NOT EXISTS idx_user_status_history_user_id ON auth.user_status_h
 CREATE INDEX IF NOT EXISTS idx_user_status_history_new_status ON auth.user_status_history (new_status);
 
 -- Lifecycle trigger: history rows are append-only, so the only
--- mutation possible is a corrected backfill — created_at must
+-- mutation possible is a corrected backfill - created_at must
 -- still survive untouched.
 DROP TRIGGER IF EXISTS prevent_user_history_created_at_update ON auth.user_status_history;
 
@@ -59,7 +59,7 @@ EXECUTE FUNCTION prevent_user_status_history_delete();
 -- Auto-population: fires AFTER UPDATE on auth.users when the status
 -- column changes. Runs as SECURITY DEFINER (owned by the migration
 -- role) so the INSERT into this append-only, FORCE-RLS table succeeds
--- regardless of the session's application role — the same pattern as
+-- regardless of the session's application role - the same pattern as
 -- log_user_role_change (000010) and log_phone_change (000011).
 --
 -- The actor and reason are recovered from transaction-local GUCs:
