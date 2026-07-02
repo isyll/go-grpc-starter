@@ -1,0 +1,4 @@
+# Only run configurations are shared; ignore per-user files.
+/*
+!/runConfigurations
+!/.gitignore

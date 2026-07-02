@@ -1,0 +1,14 @@
+{
+  "go.useLanguageServer": true,
+  "go.lintTool": "golangci-lint",
+  "go.formatTool": "gofmt",
+  "editor.formatOnSave": true,
+  "[go]": {
+    "editor.insertSpaces": false,
+    "editor.codeActionsOnSave": { "source.organizeImports": "explicit" }
+  },
+  "gopls": { "ui.semanticTokens": true },
+  "files.associations": { "*.proto": "proto3" },
+  "search.exclude": { "internal/gen/**": true },
+  "yaml.schemas": {}
+}

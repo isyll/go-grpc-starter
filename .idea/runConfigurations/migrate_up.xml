@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="migrate up" type="GoApplicationRunConfiguration" factoryName="Go Application">
+    <module name="go-api-starter" />
+    <working_directory value="$PROJECT_DIR$" />
+    <parameters value="-up" />
+    <envFilePaths>
+      <option value="$PROJECT_DIR$/.env" />
+    </envFilePaths>
+    <kind value="PACKAGE" />
+    <package value="github.com/isyll/go-api-starter/cmd/migrate" />
+    <directory value="$PROJECT_DIR$" />
+    <method v="2" />
+  </configuration>
+</component>
