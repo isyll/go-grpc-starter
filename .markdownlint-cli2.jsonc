@@ -1,0 +1,11 @@
+{
+  "config": {
+    "default": true,
+    "MD013": false, // line length
+    "MD024": { "siblings_only": true }, // duplicate headings ok if not siblings
+    "MD033": false, // inline HTML (GitHub alerts)
+    "MD041": false // first line need not be a heading
+  },
+  "globs": ["**/*.md"],
+  "ignores": ["internal/gen/**", "**/node_modules/**"]
+}
