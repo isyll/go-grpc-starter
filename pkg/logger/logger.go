@@ -5,12 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
-
-const requestIDGinKey = "request_id"
 
 type Logger struct {
 	appLogger *zap.SugaredLogger
@@ -87,63 +84,4 @@ func (l *Logger) Sync() {
 	if l.appLogger != nil {
 		_ = l.appLogger.Sync()
 	}
-}
-
-func (l *Logger) HTTP(
-	method, path, status string,
-	duration any,
-	fields ...any,
-) {
-	allFields := []any{
-		"method", method,
-		"path", path,
-		"status", status,
-		"duration", duration,
-	}
-	allFields = append(allFields, fields...)
-	l.appLogger.Infow("HTTP Request", allFields...)
-}
-
-func (l *Logger) InfoCtx(
-	c *gin.Context,
-	msg string,
-	keysAndValues ...any,
-) {
-	args := append(
-		[]any{requestIDGinKey, c.GetString(requestIDGinKey)},
-		keysAndValues...)
-	l.appLogger.Infow(msg, args...)
-}
-
-func (l *Logger) ErrorCtx(
-	c *gin.Context,
-	msg string,
-	keysAndValues ...any,
-) {
-	args := append(
-		[]any{requestIDGinKey, c.GetString(requestIDGinKey)},
-		keysAndValues...)
-	l.appLogger.Errorw(msg, args...)
-}
-
-func (l *Logger) DebugCtx(
-	c *gin.Context,
-	msg string,
-	keysAndValues ...any,
-) {
-	args := append(
-		[]any{requestIDGinKey, c.GetString(requestIDGinKey)},
-		keysAndValues...)
-	l.appLogger.Debugw(msg, args...)
-}
-
-func (l *Logger) WarnCtx(
-	c *gin.Context,
-	msg string,
-	keysAndValues ...any,
-) {
-	args := append(
-		[]any{requestIDGinKey, c.GetString(requestIDGinKey)},
-		keysAndValues...)
-	l.appLogger.Warnw(msg, args...)
 }

@@ -1,12 +1,9 @@
 package env
 
 import (
-	"log"
 	"os"
 	"regexp"
 	"strings"
-
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -41,29 +38,14 @@ func GetOrDefault(key, defaultVal string) string {
 }
 
 func InitApp() string {
-	appEnv := GetOrDefault("APP_ENV", os.Getenv("GO_ENV"))
-	appDebug := GetOrDefault("APP_DEBUG", "")
-
-	var env string
-	switch appEnv {
+	switch GetOrDefault("APP_ENV", os.Getenv("GO_ENV")) {
 	case Production, prodShort:
-		env = Production
-		gin.SetMode(gin.ReleaseMode)
+		return Production
 	case Testing, testShort:
-		env = Testing
-		gin.SetMode(gin.TestMode)
+		return Testing
 	default:
-		env = Development
-		gin.SetMode(gin.DebugMode)
+		return Development
 	}
-
-	if appDebug != "true" {
-		gin.DisableConsoleColor()
-		gin.SetMode(gin.ReleaseMode)
-		log.SetOutput(os.Stdout)
-	}
-
-	return env
 }
 
 func IsDev() bool {
