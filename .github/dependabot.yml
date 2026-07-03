@@ -4,11 +4,42 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: "gomod"
+    groups:
+      go-minor-patch:
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
   - package-ecosystem: docker
     directory: "/infra/docker"
     schedule:
       interval: weekly
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "docker"
+    groups:
+      docker:
+        patterns:
+          - "*"
