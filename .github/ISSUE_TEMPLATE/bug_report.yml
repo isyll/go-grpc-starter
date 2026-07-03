@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a defect in the template
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, commands, or an RPC call that triggers the bug.
+      placeholder: |
+        1. just up
+        2. call AuthService/Login with ...
+        3. observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: false
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - server
+        - worker
+        - migrations
+        - proto / API
+        - build / tooling
+        - other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Output of `git rev-parse --short HEAD` or the release tag.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and environment
+      description: Relevant logs, Go version, and OS. This is rendered as code.
+      render: shell
+    validations:
+      required: false
