@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/isyll/go-grpc-starter/pkg/idenc"
-
-	"gorm.io/gorm"
 )
 
 type UserStatus string
@@ -43,7 +41,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at" msgpack:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" msgpack:"updated_at"`
 
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-" msgpack:"-"`
+	DeletedAt *time.Time `json:"-" msgpack:"-"`
 
 	ActiveSuspension *AccountSuspension  `gorm:"foreignKey:UserID;references:ID" json:"active_suspension,omitempty" msgpack:"active_suspension,omitempty"`
 	StatusHistory    []UserStatusHistory `gorm:"foreignKey:UserID"               json:"status_history,omitempty"    msgpack:"status_history,omitempty"`
@@ -54,16 +52,6 @@ type UserList []*User
 
 func (User) TableName() string {
 	return "auth.users"
-}
-
-func (u *User) BeforeCreate(tx *gorm.DB) error {
-	if u.Status == "" {
-		u.Status = UserStatusActive
-	}
-	if u.Role == "" {
-		u.Role = UserRoleUser
-	}
-	return nil
 }
 
 func (u *User) IsActive() bool {

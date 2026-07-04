@@ -2,8 +2,6 @@ package models
 
 import (
 	"time"
-
-	"gorm.io/gorm"
 )
 
 type DeviceSession struct {
@@ -35,13 +33,6 @@ type DeviceSession struct {
 	CreatedAt time.Time `json:"created_at" msgpack:"created_at"`
 
 	User User `gorm:"foreignKey:UserID" json:"user" msgpack:"user"`
-}
-
-func (ds *DeviceSession) BeforeCreate(tx *gorm.DB) error {
-	if ds.LastActivity.IsZero() {
-		ds.LastActivity = time.Now()
-	}
-	return nil
 }
 
 func (DeviceSession) TableName() string {

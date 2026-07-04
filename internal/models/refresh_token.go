@@ -2,10 +2,6 @@ package models
 
 import (
 	"time"
-
-	"github.com/isyll/go-grpc-starter/pkg/utils"
-
-	"gorm.io/gorm"
 )
 
 type RefreshToken struct {
@@ -20,16 +16,6 @@ type RefreshToken struct {
 	CreatedAt     time.Time  `                  json:"created_at"               msgpack:"created_at"`
 
 	Session DeviceSession `gorm:"foreignKey:SessionID" json:"session,omitempty" msgpack:"session,omitempty"`
-}
-
-func (rt *RefreshToken) BeforeCreate(tx *gorm.DB) error {
-	if rt.ID == "" {
-		rt.ID = utils.NewUUIDNoDash()
-	}
-	if rt.TokenPrefix == "" && len(rt.TokenHash) >= 8 {
-		rt.TokenPrefix = rt.TokenHash[:8]
-	}
-	return nil
 }
 
 func (RefreshToken) TableName() string {

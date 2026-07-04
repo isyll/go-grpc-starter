@@ -12,7 +12,7 @@ import (
 
 	"firebase.google.com/go/v4/messaging"
 	"github.com/hibiken/asynq"
-	"gorm.io/gorm"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/isyll/go-grpc-starter/internal/metrics"
 	"github.com/isyll/go-grpc-starter/internal/models"
@@ -107,7 +107,7 @@ func (p *Processor) processNotification(
 
 	template, err := p.templateRepo.FindByEventType(ctx, event.Type)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			p.logger.Warn("No template found for event type",
 				"event_type", event.Type,
 			)
@@ -139,7 +139,7 @@ func (p *Processor) shouldSendNotification(
 ) bool {
 	prefs, err := p.preferencesRepo.FindByUserID(ctx, event.UserID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			p.logger.Debug(
 				"No preferences found for user, sending notification",
 				"user_id",

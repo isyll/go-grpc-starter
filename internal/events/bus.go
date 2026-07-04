@@ -14,7 +14,7 @@ import (
 	"github.com/hibiken/asynq"
 
 	"github.com/isyll/go-grpc-starter/internal/metrics"
-	"github.com/isyll/go-grpc-starter/internal/persistence"
+	"github.com/isyll/go-grpc-starter/internal/store"
 	"github.com/isyll/go-grpc-starter/pkg/logger"
 )
 
@@ -171,7 +171,7 @@ func (b *Bus) Publish(ctx context.Context, evt Event) error {
 		return b.dispatch(ctx, evt, subs)
 	}
 
-	if persistence.HasTx(ctx) && b.outbox != nil {
+	if store.InTx(ctx) && b.outbox != nil {
 		if _, err := b.outbox.Write(ctx, evt); err != nil {
 			return fmt.Errorf(
 				"events: outbox write in tx failed: %w", err,

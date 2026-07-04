@@ -14,13 +14,13 @@ import (
 func (a *App) buildGRPCDeps() grpcserver.Deps {
 	infra := a.Infra
 
-	userRepo := users.NewRepository(infra.DB)
-	settingsRepo := settings.NewRepository(infra.DB)
-	suspensionRepo := suspension.NewRepository(infra.DB)
-	sessionRepo := auth.NewDeviceSessionRepository(infra.DB)
-	refreshRepo := auth.NewRefreshTokenRepository(infra.DB)
-	tokenRepo := notifications.NewTokenRepository(infra.DB)
-	prefRepo := notifications.NewPreferencesRepository(infra.DB)
+	userRepo := users.NewRepository(infra.Store)
+	settingsRepo := settings.NewRepository(infra.Store)
+	suspensionRepo := suspension.NewRepository(infra.Store)
+	sessionRepo := auth.NewDeviceSessionRepository(infra.Store)
+	refreshRepo := auth.NewRefreshTokenRepository(infra.Store)
+	tokenRepo := notifications.NewTokenRepository(infra.Store)
+	prefRepo := notifications.NewPreferencesRepository(infra.Store)
 
 	webURL := os.Getenv("APP_WEB_URL")
 	if webURL == "" {
@@ -53,7 +53,7 @@ func (a *App) buildGRPCDeps() grpcserver.Deps {
 		Auth:     grpcserver.NewAuthServer(authSvc, infra.IDEncoder),
 		User:     grpcserver.NewUserServer(usersSvc, settingsSvc, notifSvc, infra.IDEncoder),
 		Admin:    grpcserver.NewAdminServer(usersSvc, suspensionSvc, infra.EventBus, infra.IDEncoder),
-		Health:   grpcserver.NewHealthServer(infra.DB, infra.Cache, a.version()),
+		Health:   grpcserver.NewHealthServer(infra.Store, infra.Cache, a.version()),
 	}
 }
 

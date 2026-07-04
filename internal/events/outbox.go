@@ -9,11 +9,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
+	"github.com/isyll/go-grpc-starter/gen/db"
 	"github.com/isyll/go-grpc-starter/internal/metrics"
-	"github.com/isyll/go-grpc-starter/internal/persistence"
+	"github.com/isyll/go-grpc-starter/internal/store"
 	"github.com/isyll/go-grpc-starter/pkg/logger"
 )
 
@@ -22,71 +21,71 @@ var ErrOutboxDuplicate = errors.New(
 )
 
 type OutboxEvent struct {
-	ID              int64           `gorm:"primaryKey"`
-	EventType       string          `gorm:"not null"`
-	Payload         json.RawMessage `gorm:"type:jsonb;not null"`
+	ID              int64
+	EventType       string
+	Payload         json.RawMessage
 	DedupeKey       *string
-	CreatedAt       time.Time `gorm:"not null;default:now()"`
+	CreatedAt       time.Time
 	ProcessedAt     *time.Time
-	RetryCount      int `gorm:"not null;default:0"`
+	RetryCount      int
 	LastError       *string
 	LastAttemptedAt *time.Time
 }
 
-func (OutboxEvent) TableName() string { return "events.outbox" }
-
-type OutboxDeadLetterEvent struct {
-	ID            int64           `gorm:"primaryKey"`
-	SourceID      int64           `gorm:"not null"`
-	EventType     string          `gorm:"not null"`
-	Payload       json.RawMessage `gorm:"type:jsonb;not null"`
-	FailureReason string          `gorm:"not null"`
-	LastError     *string
-	CreatedAt     time.Time `gorm:"not null;default:now()"`
-	FailedAt      time.Time `gorm:"not null;default:now()"`
-}
-
-func (OutboxDeadLetterEvent) TableName() string {
-	return "events.outbox_dead_letter"
-}
-
 type OutboxRepository struct {
-	db     *gorm.DB
+	store  *store.Store
 	logger *logger.Logger
 }
 
-func NewOutboxRepository(
-	db *gorm.DB,
-	logx *logger.Logger,
-) *OutboxRepository {
-	return &OutboxRepository{db: db, logger: logx}
+func NewOutboxRepository(s *store.Store, logx *logger.Logger) *OutboxRepository {
+	return &OutboxRepository{store: s, logger: logx}
 }
 
-func (r *OutboxRepository) Write(
-	ctx context.Context,
-	evt Event,
-) (int64, error) {
+func toOutboxEvent(r db.EventsOutbox) *OutboxEvent {
+	return &OutboxEvent{
+		ID:              r.ID,
+		EventType:       r.EventType,
+		Payload:         r.Payload,
+		DedupeKey:       r.DedupeKey,
+		CreatedAt:       store.Time(r.CreatedAt),
+		ProcessedAt:     store.TimePtr(r.ProcessedAt),
+		RetryCount:      int(r.RetryCount),
+		LastError:       r.LastError,
+		LastAttemptedAt: store.TimePtr(r.LastAttemptedAt),
+	}
+}
+
+// Write inserts an outbox row. When called inside a service transaction it
+// joins that transaction, so the row commits atomically with the domain write.
+func (r *OutboxRepository) Write(ctx context.Context, evt Event) (int64, error) {
 	payload, err := json.Marshal(evt)
 	if err != nil {
 		return 0, fmt.Errorf("outbox: marshal: %w", err)
 	}
-	row := &OutboxEvent{
-		EventType: evt.EventType(),
-		Payload:   payload,
-	}
+	var dedupe *string
 	if d, ok := evt.(Dedupable); ok {
 		if k := strings.TrimSpace(d.OutboxDedupeKey()); k != "" {
-			row.DedupeKey = &k
+			dedupe = &k
 		}
 	}
-	if err := persistence.Q(ctx, r.db).
-		Create(row).Error; err != nil {
+
+	var id int64
+	err = r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		var qErr error
+		id, qErr = q.InsertOutbox(ctx, db.InsertOutboxParams{
+			EventType: evt.EventType(),
+			Payload:   payload,
+			DedupeKey: dedupe,
+		})
+		return qErr
+	})
+	if err != nil {
 		if isOutboxDedupeViolation(err) {
 			return 0, ErrOutboxDuplicate
 		}
 		return 0, fmt.Errorf("outbox: insert: %w", err)
 	}
-	return row.ID, nil
+	return id, nil
 }
 
 func isOutboxDedupeViolation(err error) bool {
@@ -95,138 +94,84 @@ func isOutboxDedupeViolation(err error) bool {
 		return false
 	}
 	return pgErr.Code == "23505" &&
-		strings.Contains(
-			pgErr.ConstraintName, "outbox_pending_dedupe",
-		)
+		strings.Contains(pgErr.ConstraintName, "outbox_pending_dedupe")
 }
 
-func (r *OutboxRepository) Publish(
-	ctx context.Context,
-	evt Event,
-) error {
+func (r *OutboxRepository) Publish(ctx context.Context, evt Event) error {
 	if _, err := r.Write(ctx, evt); err != nil {
 		if errors.Is(err, ErrOutboxDuplicate) {
-			r.logger.Debug(
-				"outbox publish deduplicated",
-				"event", evt.EventType(),
-			)
+			r.logger.Debug("outbox publish deduplicated", "event", evt.EventType())
 			return nil
 		}
-		r.logger.Error(
-			"outbox publish failed",
-			"event", evt.EventType(),
-			"error", err,
-		)
+		r.logger.Error("outbox publish failed", "event", evt.EventType(), "error", err)
 		return err
 	}
 	return nil
 }
 
-func (r *OutboxRepository) MarkProcessed(
-	ctx context.Context,
-	id int64,
-) error {
-	now := time.Now()
-	if err := r.db.WithContext(ctx).
-		Model(&OutboxEvent{}).
-		Where("id = ?", id).
-		Update("processed_at", now).Error; err != nil {
-		metrics.OutboxMarkFailuresTotal.
-			WithLabelValues("processed").Inc()
-		r.logger.Warn(
-			"outbox: mark processed failed",
-			"id", id, "error", err,
-		)
-		return fmt.Errorf(
-			"outbox: mark processed %d: %w", id, err,
-		)
+func (r *OutboxRepository) MarkProcessed(ctx context.Context, id int64) error {
+	err := r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		return q.MarkOutboxProcessed(ctx, id)
+	})
+	if err != nil {
+		metrics.OutboxMarkFailuresTotal.WithLabelValues("processed").Inc()
+		r.logger.Warn("outbox: mark processed failed", "id", id, "error", err)
+		return fmt.Errorf("outbox: mark processed %d: %w", id, err)
 	}
 	return nil
 }
 
-func (r *OutboxRepository) MarkFailed(
-	ctx context.Context,
-	id int64,
-	errMsg string,
-) error {
-	if err := r.db.WithContext(ctx).
-		Model(&OutboxEvent{}).
-		Where("id = ?", id).
-		Updates(map[string]any{
-			"retry_count":       gorm.Expr("retry_count + 1"),
-			"last_error":        errMsg,
-			"last_attempted_at": time.Now(),
-		}).Error; err != nil {
-		metrics.OutboxMarkFailuresTotal.
-			WithLabelValues("failed").Inc()
-		r.logger.Warn(
-			"outbox: mark failed failed",
-			"id", id, "error", err,
-		)
-		return fmt.Errorf(
-			"outbox: mark failed %d: %w", id, err,
-		)
+func (r *OutboxRepository) MarkFailed(ctx context.Context, id int64, errMsg string) error {
+	err := r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		return q.MarkOutboxFailed(ctx, db.MarkOutboxFailedParams{ID: id, LastError: store.Ptr(errMsg)})
+	})
+	if err != nil {
+		metrics.OutboxMarkFailuresTotal.WithLabelValues("failed").Inc()
+		r.logger.Warn("outbox: mark failed failed", "id", id, "error", err)
+		return fmt.Errorf("outbox: mark failed %d: %w", id, err)
 	}
 	return nil
 }
 
 func (r *OutboxRepository) DeadLetter(
-	ctx context.Context,
-	row *OutboxEvent,
-	reason string,
-	lastErr string,
+	ctx context.Context, row *OutboxEvent, reason, lastErr string,
 ) error {
-	var lastErrPtr *string
-	if lastErr != "" {
-		lastErrPtr = &lastErr
-	}
-	dl := &OutboxDeadLetterEvent{
-		SourceID:      row.ID,
-		EventType:     row.EventType,
-		Payload:       row.Payload,
-		FailureReason: reason,
-		LastError:     lastErrPtr,
-	}
-	if err := r.db.WithContext(ctx).Create(dl).Error; err != nil {
-		return fmt.Errorf(
-			"outbox: dead-letter %d: %w", row.ID, err,
-		)
+	err := r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		return q.InsertOutboxDeadLetter(ctx, db.InsertOutboxDeadLetterParams{
+			SourceID:      row.ID,
+			EventType:     row.EventType,
+			Payload:       row.Payload,
+			FailureReason: reason,
+			LastError:     store.NullStr(lastErr),
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("outbox: dead-letter %d: %w", row.ID, err)
 	}
 	metrics.OutboxDeadLetterTotal.WithLabelValues(reason).Inc()
 	return nil
 }
 
-func (r *OutboxRepository) PendingBatch(
-	ctx context.Context,
-	limit int,
-) ([]*OutboxEvent, error) {
-	var rows []*OutboxEvent
-	err := r.db.WithContext(ctx).
-		Clauses(clause.Locking{
-			Strength: "UPDATE",
-			Options:  "SKIP LOCKED",
-		}).
-		Where(`
-			processed_at IS NULL
-			AND retry_count < ?
-			AND (
-				last_attempted_at IS NULL
-				OR (retry_count = 1 AND last_attempted_at < now() - interval '30 seconds')
-				OR (retry_count = 2 AND last_attempted_at < now() - interval '2 minutes')
-				OR (retry_count = 3 AND last_attempted_at < now() - interval '10 minutes')
-				OR (retry_count = 4 AND last_attempted_at < now() - interval '30 minutes')
-				OR (retry_count >= 5 AND last_attempted_at < now() - interval '1 hour')
-			)
-		`, outboxMaxRetry).
-		Order("last_attempted_at NULLS FIRST, id ASC").
-		Limit(limit).
-		Find(&rows).Error
+func (r *OutboxRepository) PendingBatch(ctx context.Context, limit int) ([]*OutboxEvent, error) {
+	var out []*OutboxEvent
+	err := r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		rows, err := q.PendingOutboxBatch(ctx, db.PendingOutboxBatchParams{
+			RetryCount: outboxMaxRetry,
+			Limit:      int32(limit),
+		})
+		if err != nil {
+			return err
+		}
+		out = make([]*OutboxEvent, len(rows))
+		for i, row := range rows {
+			out[i] = toOutboxEvent(row)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf(
-			"outbox: pending batch: %w", err,
-		)
+		return nil, fmt.Errorf("outbox: pending batch: %w", err)
 	}
-	return rows, nil
+	return out, nil
 }
 
 const outboxMaxRetry = 10

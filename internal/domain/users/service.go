@@ -39,20 +39,7 @@ func (s *Service) Get(ctx context.Context, id int64) (*models.User, error) {
 func (s *Service) UpdateProfile(
 	ctx context.Context, id int64, upd ProfileUpdate,
 ) (*models.User, error) {
-	fields := map[string]any{}
-	if upd.FirstName != nil {
-		fields["first_name"] = *upd.FirstName
-	}
-	if upd.LastName != nil {
-		fields["last_name"] = *upd.LastName
-	}
-	if upd.Bio != nil {
-		fields["bio"] = *upd.Bio
-	}
-	if upd.Avatar != nil {
-		fields["avatar"] = *upd.Avatar
-	}
-	return s.repo.UpdateProfile(ctx, id, fields)
+	return s.repo.UpdateProfile(ctx, id, upd)
 }
 
 func (s *Service) DeleteAccount(ctx context.Context, id int64) error {

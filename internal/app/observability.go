@@ -24,7 +24,7 @@ func (a *App) startObservability() *http.Server {
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if sqlDB, err := a.Infra.DB.DB(); err != nil || sqlDB.PingContext(ctx) != nil {
+		if err := a.Infra.Store.Pool().Ping(ctx); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}

@@ -5,11 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/isyll/go-grpc-starter/gen/db"
 	"github.com/isyll/go-grpc-starter/internal/models"
-
-	"gorm.io/gorm"
+	"github.com/isyll/go-grpc-starter/internal/store"
 )
 
 type Repository interface {
@@ -19,44 +20,67 @@ type Repository interface {
 }
 
 type repository struct {
-	db *gorm.DB
+	store *store.Store
 }
 
-func NewRepository(db *gorm.DB) Repository {
-	return &repository{db: db}
+func NewRepository(s *store.Store) Repository {
+	return &repository{store: s}
+}
+
+func toSuspension(row db.AuthAccountSuspension) *models.AccountSuspension {
+	return &models.AccountSuspension{
+		ID:             row.ID,
+		UserID:         row.UserID,
+		Reason:         models.SuspensionReason(row.Reason),
+		Details:        store.Str(row.Details),
+		SuspendedAt:    store.Time(row.SuspendedAt),
+		SuspendedUntil: store.TimePtr(row.SuspendedUntil),
+		IsPermanent:    row.IsPermanent,
+		CreatedAt:      store.Time(row.CreatedAt),
+		UpdatedAt:      store.Time(row.UpdatedAt),
+	}
 }
 
 func (r *repository) GetActiveByUserID(
 	ctx context.Context, userID int64,
 ) (*models.AccountSuspension, error) {
-	var sus models.AccountSuspension
-	err := r.db.WithContext(ctx).
-		Where("user_id = ?", userID).
-		Where("is_permanent = true OR suspended_until > NOW()").
-		Order("created_at DESC").
-		First(&sus).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrNotSuspended
+	var out *models.AccountSuspension
+	err := r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		row, err := q.GetActiveSuspensionByUserID(ctx, userID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotSuspended
+			}
+			return fmt.Errorf("get active suspension: %w", err)
 		}
-		panic(fmt.Errorf("get active suspension: %w", err))
-	}
-	return &sus, nil
+		out = toSuspension(row)
+		return nil
+	})
+	return out, err
 }
 
 func (r *repository) Create(ctx context.Context, s *models.AccountSuspension) error {
-	if err := r.db.WithContext(ctx).Create(s).Error; err != nil {
-		return fmt.Errorf("create suspension: %w", err)
-	}
-	return nil
+	return r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		row, err := q.CreateSuspension(ctx, db.CreateSuspensionParams{
+			UserID:         s.UserID,
+			Reason:         db.AuthSuspensionReason(s.Reason),
+			Details:        store.NullStr(s.Details),
+			SuspendedUntil: store.TSPtr(s.SuspendedUntil),
+			IsPermanent:    s.IsPermanent,
+		})
+		if err != nil {
+			return fmt.Errorf("create suspension: %w", err)
+		}
+		*s = *toSuspension(row)
+		return nil
+	})
 }
 
 func (r *repository) DeactivateByUserID(ctx context.Context, userID int64) error {
-	return r.db.WithContext(ctx).Model(&models.AccountSuspension{}).
-		Where("user_id = ?", userID).
-		Where("is_permanent = true OR suspended_until > NOW()").
-		Updates(map[string]any{
-			"is_permanent":    false,
-			"suspended_until": time.Now().UTC(),
-		}).Error
+	return r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		if err := q.DeactivateActiveSuspensions(ctx, userID); err != nil {
+			return fmt.Errorf("deactivate suspension: %w", err)
+		}
+		return nil
+	})
 }

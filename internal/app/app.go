@@ -13,13 +13,13 @@ import (
 
 	"firebase.google.com/go/v4/messaging"
 	"github.com/hibiken/asynq"
-	"gorm.io/gorm"
 
 	"github.com/isyll/go-grpc-starter/internal/events"
 	grpcserver "github.com/isyll/go-grpc-starter/internal/grpc"
 	"github.com/isyll/go-grpc-starter/internal/infra/cache"
 	database "github.com/isyll/go-grpc-starter/internal/infra/db"
 	"github.com/isyll/go-grpc-starter/internal/monitor"
+	"github.com/isyll/go-grpc-starter/internal/store"
 	"github.com/isyll/go-grpc-starter/internal/worker/emails"
 	"github.com/isyll/go-grpc-starter/internal/worker/notifications"
 	"github.com/isyll/go-grpc-starter/pkg/config"
@@ -57,10 +57,11 @@ func (a *App) Initialize() error {
 	logx := logger.New(envName)
 	logx.Info("initializing "+cfgs.App.Info.Name, "version", cfgs.App.Info.Version, "env", envName)
 
-	db, err := database.InitDatabase(cfgs.Database, database.RoleApp, logx)
+	pool, err := database.InitPool(cfgs.Database, database.RoleApp, logx)
 	if err != nil {
 		return fmt.Errorf("database init: %w", err)
 	}
+	st := store.New(pool)
 
 	rdb, err := cache.InitRedis(cfgs.Redis)
 	if err != nil {
@@ -77,11 +78,11 @@ func (a *App) Initialize() error {
 	cacheManager := cache.NewCacheManager(rdb, cfgs.Redis.Cache.Prefix)
 
 	fcm := a.initFCM(envName, cfgs, logx)
-	d := buildDispatchers(cfgs, db, logx)
+	d := buildDispatchers(cfgs, st, logx)
 
 	a.Infra = &Infrastructure{
 		StartTime:          a.StartTime,
-		DB:                 db,
+		Store:              st,
 		Cache:              rdb,
 		Config:             cfgs,
 		Logger:             logx,
@@ -120,12 +121,12 @@ type dispatcherBundle struct {
 	eventBus   *events.Bus
 }
 
-func buildDispatchers(cfgs *config.Configs, db *gorm.DB, logx *logger.Logger) dispatcherBundle {
+func buildDispatchers(cfgs *config.Configs, st *store.Store, logx *logger.Logger) dispatcherBundle {
 	addr, password := cfgs.Redis.Credentials()
 
 	asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: addr, Password: password})
 	eventDispatcher := events.NewAsynqDispatcher(asynqClient, logx)
-	outboxRepo := events.NewOutboxRepository(db, logx)
+	outboxRepo := events.NewOutboxRepository(st, logx)
 
 	return dispatcherBundle{
 		notif:      notifications.NewDispatcher(addr, password, cfgs.Notifications, logx),
@@ -140,7 +141,7 @@ func (a *App) Bootstrap() error {
 	deps := a.buildGRPCDeps()
 
 	WireEventSubscriptions(a.Infra.EventBus, &EventHandlerDeps{
-		DB:           a.Infra.DB,
+		Store:        a.Infra.Store,
 		CacheManager: a.Infra.CacheManager,
 		Logger:       a.Infra.Logger,
 	})
@@ -216,8 +217,8 @@ func (a *App) AwaitShutdown() {
 		_ = a.obs.Shutdown(shutCtx)
 	}
 
-	if sqlDB, err := a.Infra.DB.DB(); err == nil {
-		_ = sqlDB.Close()
+	if a.Infra.Store != nil {
+		a.Infra.Store.Pool().Close()
 	}
 	if a.Infra.Cache != nil {
 		_ = a.Infra.Cache.Close()

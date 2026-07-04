@@ -2,59 +2,50 @@ package handlers
 
 import (
 	"context"
-	"time"
 
-	"gorm.io/gorm"
-
+	"github.com/isyll/go-grpc-starter/gen/db"
 	"github.com/isyll/go-grpc-starter/internal/events"
-	"github.com/isyll/go-grpc-starter/internal/models"
+	"github.com/isyll/go-grpc-starter/internal/store"
 	"github.com/isyll/go-grpc-starter/pkg/logger"
 )
 
 type AuthAttemptHandler struct {
-	db     *gorm.DB
+	store  *store.Store
 	logger *logger.Logger
 }
 
 func NewAuthAttemptHandler(
-	db *gorm.DB,
+	s *store.Store,
 	logx *logger.Logger,
 ) *AuthAttemptHandler {
-	return &AuthAttemptHandler{db: db, logger: logx}
+	return &AuthAttemptHandler{store: s, logger: logx}
 }
 
 func (h *AuthAttemptHandler) OnAuthAttemptRecorded(
 	ctx context.Context,
 	evt *events.AuthAttemptRecorded,
 ) error {
-	occurredAt := evt.OccurredAt
-	if occurredAt.IsZero() {
-		occurredAt = time.Now().UTC()
+	var userID *int64
+	if evt.UserID != 0 {
+		userID = &evt.UserID
 	}
 
-	row := models.LoginAttempt{
-		Email:     evt.Email,
-		UserID:    evt.UserID,
-		Channel:   evt.Channel,
-		Outcome:   evt.Outcome,
-		Remaining: evt.Remaining,
-		CreatedAt: occurredAt,
-	}
+	remaining := int32(evt.Remaining)
 
-	if evt.IPAddress != "" {
-		row.IPAddress = &evt.IPAddress
-	}
-	if evt.UserAgent != "" {
-		row.UserAgent = &evt.UserAgent
-	}
-	if evt.DeviceID != "" {
-		row.DeviceID = &evt.DeviceID
-	}
-	if evt.RequestID != "" {
-		row.RequestID = &evt.RequestID
-	}
-
-	if err := h.db.WithContext(ctx).Create(&row).Error; err != nil {
+	err := h.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		return q.CreateLoginAttempt(ctx, db.CreateLoginAttemptParams{
+			Email:     evt.Email,
+			UserID:    userID,
+			Channel:   evt.Channel,
+			Outcome:   evt.Outcome,
+			Remaining: &remaining,
+			IpAddress: store.NullStr(evt.IPAddress),
+			UserAgent: store.NullStr(evt.UserAgent),
+			DeviceID:  store.NullStr(evt.DeviceID),
+			RequestID: store.NullStr(evt.RequestID),
+		})
+	})
+	if err != nil {
 		h.logger.Error(
 			"auth attempt handler: failed to persist login attempt row",
 			"error", err,

@@ -2,52 +2,63 @@ package handlers
 
 import (
 	"context"
-	"time"
+	"encoding/json"
 
-	"gorm.io/gorm"
-
+	"github.com/isyll/go-grpc-starter/gen/db"
 	"github.com/isyll/go-grpc-starter/internal/events"
 	"github.com/isyll/go-grpc-starter/internal/metrics"
-	"github.com/isyll/go-grpc-starter/internal/models"
+	"github.com/isyll/go-grpc-starter/internal/store"
 	"github.com/isyll/go-grpc-starter/pkg/logger"
 )
 
 type AuditLogHandler struct {
-	db     *gorm.DB
+	store  *store.Store
 	logger *logger.Logger
 }
 
-func NewAuditLogHandler(db *gorm.DB, logx *logger.Logger) *AuditLogHandler {
-	return &AuditLogHandler{db: db, logger: logx}
+func NewAuditLogHandler(s *store.Store, logx *logger.Logger) *AuditLogHandler {
+	return &AuditLogHandler{store: s, logger: logx}
 }
 
 func (h *AuditLogHandler) OnAuditLogWritten(
 	ctx context.Context,
 	evt *events.AuditLogWritten,
 ) error {
-	occurredAt := evt.OccurredAt
-	if occurredAt.IsZero() {
-		occurredAt = time.Now().UTC()
-	}
 	status := evt.Status
 	if status == "" {
 		status = "success"
 	}
 
-	row := models.AuditLog{
-		AdminID:    evt.AdminID,
-		Action:     evt.Action,
-		Resource:   evt.Resource,
-		ResourceID: evt.ResourceID,
-		Details:    evt.Details,
-		Status:     status,
-		IPAddress:  evt.IPAddress,
-		UserAgent:  evt.UserAgent,
-		RequestID:  evt.RequestID,
-		CreatedAt:  occurredAt,
+	// Details is a JSONB column; nil map stays NULL (nil bytes).
+	var detailsJSON []byte
+	if evt.Details != nil {
+		b, err := json.Marshal(evt.Details)
+		if err != nil {
+			metrics.AuditLogWriteFailuresTotal.WithLabelValues("marshal").Inc()
+			h.logger.Error(
+				"audit log handler: failed to marshal audit details",
+				"error", err, "action", evt.Action,
+				"admin_id", evt.AdminID, "request_id", evt.RequestID,
+			)
+			return err
+		}
+		detailsJSON = b
 	}
 
-	if err := h.db.WithContext(ctx).Create(&row).Error; err != nil {
+	err := h.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		return q.CreateAuditLog(ctx, db.CreateAuditLogParams{
+			AdminID:    evt.AdminID,
+			Action:     evt.Action,
+			Resource:   evt.Resource,
+			ResourceID: store.NullStr(evt.ResourceID),
+			Details:    detailsJSON,
+			Status:     status,
+			IpAddress:  store.NullStr(evt.IPAddress),
+			UserAgent:  store.NullStr(evt.UserAgent),
+			RequestID:  store.NullStr(evt.RequestID),
+		})
+	})
+	if err != nil {
 		metrics.AuditLogWriteFailuresTotal.WithLabelValues("db_write").Inc()
 		h.logger.Error(
 			"audit log handler: failed to write audit row",

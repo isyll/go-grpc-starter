@@ -7,6 +7,7 @@ import (
 	"log"
 
 	database "github.com/isyll/go-grpc-starter/internal/infra/db"
+	"github.com/isyll/go-grpc-starter/internal/store"
 	notifWorker "github.com/isyll/go-grpc-starter/internal/worker/notifications"
 	"github.com/isyll/go-grpc-starter/pkg/config"
 	appenv "github.com/isyll/go-grpc-starter/pkg/env"
@@ -26,12 +27,14 @@ func main() {
 
 	logx.Info("Starting push notification worker", "env", env)
 
-	db, err := database.InitDatabase(
+	pool, err := database.InitPool(
 		cfg.Database, database.RoleAdmin, logx,
 	)
 	if err != nil {
 		logx.Fatal("Failed to initialize database", "error", err)
 	}
+	st := store.New(pool)
+	defer st.Pool().Close()
 
 	firebaseClient, err := firebase.InitFirebase(env, cfg, logx)
 	if err != nil {
@@ -45,12 +48,12 @@ func main() {
 		logx.Fatal("Failed to get FCM messaging client", "error", err)
 	}
 
-	fcmTokenRepo := notifWorker.NewFCMTokenRepository(db)
+	fcmTokenRepo := notifWorker.NewFCMTokenRepository(st)
 	preferencesRepo := notifWorker.NewNotificationPreferencesRepository(
-		db,
+		st,
 	)
-	templateRepo := notifWorker.NewTemplateRepository(db)
-	logRepo := notifWorker.NewLogRepository(db)
+	templateRepo := notifWorker.NewTemplateRepository(st)
+	logRepo := notifWorker.NewLogRepository(st)
 
 	redisAddr := fmt.Sprintf(
 		"%s:%d",

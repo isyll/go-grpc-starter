@@ -15,6 +15,7 @@ import (
 	"github.com/isyll/go-grpc-starter/internal/events"
 	"github.com/isyll/go-grpc-starter/internal/infra/cache"
 	database "github.com/isyll/go-grpc-starter/internal/infra/db"
+	"github.com/isyll/go-grpc-starter/internal/store"
 	"github.com/isyll/go-grpc-starter/pkg/config"
 	appenv "github.com/isyll/go-grpc-starter/pkg/env"
 	"github.com/isyll/go-grpc-starter/pkg/logger"
@@ -38,12 +39,14 @@ func main() {
 
 	cm := cache.NewCacheManager(rdb, cfg.Redis.Cache.Prefix)
 
-	db, err := database.InitDatabase(cfg.Database, database.RoleAdmin, logx)
+	pool, err := database.InitPool(cfg.Database, database.RoleAdmin, logx)
 	if err != nil {
 		logx.Fatal("event-dispatcher: database init failed", "error", err)
 	}
+	st := store.New(pool)
+	defer st.Pool().Close()
 
-	outboxRepo := events.NewOutboxRepository(db, logx)
+	outboxRepo := events.NewOutboxRepository(st, logx)
 
 	asynqClient := asynq.NewClient(asynq.RedisClientOpt{Addr: redisAddr, Password: redisPassword})
 	defer func() { _ = asynqClient.Close() }()
@@ -51,7 +54,7 @@ func main() {
 
 	bus := events.NewWithOutbox(asyncDisp, outboxRepo, logx)
 	app.WireEventSubscriptions(bus, &app.EventHandlerDeps{
-		DB:           db,
+		Store:        st,
 		CacheManager: cm,
 		Logger:       logx,
 	})

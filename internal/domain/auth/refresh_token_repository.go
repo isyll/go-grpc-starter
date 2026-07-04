@@ -3,163 +3,140 @@ package auth
 import (
 	"context"
 	"crypto/subtle"
-	"errors"
 	"fmt"
-	"time"
 
-	models "github.com/isyll/go-grpc-starter/internal/models"
-
-	"gorm.io/gorm"
+	"github.com/isyll/go-grpc-starter/gen/db"
+	"github.com/isyll/go-grpc-starter/internal/models"
+	"github.com/isyll/go-grpc-starter/internal/store"
 )
 
 type RefreshTokenRepository interface {
 	Create(ctx context.Context, token *models.RefreshToken)
-	FindByTokenHash(
-		ctx context.Context,
-		tokenHash string,
-	) (*models.RefreshToken, error)
-	RevokeByTokenHash(
-		ctx context.Context,
-		tokenHash, reason string,
-	) error
-	RevokeBySessionID(
-		ctx context.Context,
-		sessionID int64,
-		reason string,
-	) error
-	RevokeByTokenFamily(
-		ctx context.Context,
-		tokenFamily, reason string,
-	) error
+	FindByTokenHash(ctx context.Context, tokenHash string) (*models.RefreshToken, error)
+	RevokeByTokenHash(ctx context.Context, tokenHash, reason string) error
+	RevokeBySessionID(ctx context.Context, sessionID int64, reason string) error
+	RevokeByTokenFamily(ctx context.Context, tokenFamily, reason string) error
 	CleanupExpired(ctx context.Context) (int64, error)
 }
 
 type refreshTokenRepository struct {
-	db *gorm.DB
+	store *store.Store
 }
 
-func NewRefreshTokenRepository(db *gorm.DB) RefreshTokenRepository {
-	return &refreshTokenRepository{db: db}
+func NewRefreshTokenRepository(s *store.Store) RefreshTokenRepository {
+	return &refreshTokenRepository{store: s}
 }
 
-func (r *refreshTokenRepository) Create(
-	ctx context.Context,
-	token *models.RefreshToken,
-) {
-	if err := r.db.WithContext(ctx).Create(token).Error; err != nil {
-		panic(fmt.Errorf(
-			"failed to create refresh token record with value %v: %w",
-			token,
-			err,
-		))
+func toRefreshToken(r db.AuthRefreshToken) *models.RefreshToken {
+	return &models.RefreshToken{
+		ID:            store.UUIDString(r.ID),
+		SessionID:     r.SessionID,
+		TokenHash:     r.TokenHash,
+		TokenPrefix:   r.TokenPrefix,
+		TokenFamily:   store.UUIDString(r.TokenFamily),
+		ExpiresAt:     store.Time(r.ExpiresAt),
+		RevokedAt:     store.TimePtr(r.RevokedAt),
+		RevokedReason: store.Str(r.RevokedReason),
+		CreatedAt:     store.Time(r.CreatedAt),
+	}
+}
+
+func (r *refreshTokenRepository) Create(ctx context.Context, token *models.RefreshToken) {
+	prefix := token.TokenPrefix
+	if prefix == "" && len(token.TokenHash) >= 8 {
+		prefix = token.TokenHash[:8]
+	}
+	err := r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		row, err := q.CreateRefreshToken(ctx, db.CreateRefreshTokenParams{
+			SessionID:   token.SessionID,
+			TokenHash:   token.TokenHash,
+			TokenPrefix: prefix,
+			TokenFamily: store.ParseUUID(token.TokenFamily),
+			ExpiresAt:   store.TS(token.ExpiresAt),
+		})
+		if err != nil {
+			return err
+		}
+		*token = *toRefreshToken(row)
+		return nil
+	})
+	if err != nil {
+		panic(fmt.Errorf("create refresh token: %w", err))
 	}
 }
 
 func (r *refreshTokenRepository) FindByTokenHash(
-	ctx context.Context,
-	tokenHash string,
+	ctx context.Context, tokenHash string,
 ) (*models.RefreshToken, error) {
 	if len(tokenHash) < 8 {
 		return nil, ErrInvalidToken
 	}
-	var token models.RefreshToken
-	err := r.db.WithContext(ctx).
-		Preload("Session.User").
-		Where("token_prefix = ?", tokenHash[:8]).
-		First(&token).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrInvalidToken
+	var out *models.RefreshToken
+	err := r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		rows, err := q.ListRefreshTokensByPrefix(ctx, tokenHash[:8])
+		if err != nil {
+			return fmt.Errorf("find refresh token: %w", err)
 		}
-		panic(fmt.Errorf("find refresh token: %w", err))
+		for _, row := range rows {
+			if subtle.ConstantTimeCompare([]byte(row.TokenHash), []byte(tokenHash)) != 1 {
+				continue
+			}
+			record := toRefreshToken(row)
+			sessionRow, err := q.GetDeviceSessionByID(ctx, record.SessionID)
+			if err != nil {
+				return fmt.Errorf("load token session: %w", err)
+			}
+			session := toDeviceSession(sessionRow)
+			userRow, err := q.GetUserByID(ctx, session.UserID)
+			if err != nil {
+				return fmt.Errorf("load token user: %w", err)
+			}
+			session.User = rowToUser(userRow)
+			record.Session = *session
+			out = record
+			return nil
+		}
+		return ErrInvalidToken
+	})
+	if err != nil {
+		return nil, err
 	}
-	if subtle.ConstantTimeCompare(
-		[]byte(token.TokenHash),
-		[]byte(tokenHash),
-	) != 1 {
-		return nil, ErrInvalidToken
-	}
-	return &token, nil
+	return out, nil
 }
 
-func (r *refreshTokenRepository) RevokeByTokenHash(
-	ctx context.Context,
-	tokenHash string,
-	reason string,
-) error {
-	now := time.Now().UTC()
-	result := r.db.WithContext(ctx).
-		Model(&models.RefreshToken{}).
-		Where("token_hash = ? AND revoked_at IS NULL", tokenHash).
-		Updates(map[string]any{
-			colRevokedAt:     now,
-			colRevokedReason: reason,
+func (r *refreshTokenRepository) RevokeByTokenHash(ctx context.Context, tokenHash, reason string) error {
+	return r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		return q.RevokeRefreshTokenByHash(ctx, db.RevokeRefreshTokenByHashParams{
+			TokenHash:     tokenHash,
+			RevokedReason: store.Ptr(reason),
 		})
-
-	if result.Error != nil {
-		panic(fmt.Errorf("revoke token: %w", result.Error))
-	}
-	return nil
+	})
 }
 
-func (r *refreshTokenRepository) RevokeBySessionID(
-	ctx context.Context,
-	sessionID int64,
-	reason string,
-) error {
-	now := time.Now().UTC()
-	result := r.db.WithContext(ctx).
-		Model(&models.RefreshToken{}).
-		Where("session_id = ? AND revoked_at IS NULL", sessionID).
-		Updates(map[string]any{
-			colRevokedAt:     now,
-			colRevokedReason: reason,
+func (r *refreshTokenRepository) RevokeBySessionID(ctx context.Context, sessionID int64, reason string) error {
+	return r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		return q.RevokeRefreshTokensBySession(ctx, db.RevokeRefreshTokensBySessionParams{
+			SessionID:     sessionID,
+			RevokedReason: store.Ptr(reason),
 		})
-
-	if result.Error != nil {
-		panic(fmt.Errorf(
-			"revoke tokens by session: %w", result.Error,
-		))
-	}
-	return nil
+	})
 }
 
-func (r *refreshTokenRepository) RevokeByTokenFamily(
-	ctx context.Context,
-	tokenFamily string,
-	reason string,
-) error {
-	now := time.Now().UTC()
-	result := r.db.WithContext(ctx).
-		Model(&models.RefreshToken{}).
-		Where(
-			"token_family = ? AND revoked_at IS NULL",
-			tokenFamily,
-		).
-		Updates(map[string]any{
-			colRevokedAt:     now,
-			colRevokedReason: reason,
+func (r *refreshTokenRepository) RevokeByTokenFamily(ctx context.Context, tokenFamily, reason string) error {
+	return r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		return q.RevokeRefreshTokensByFamily(ctx, db.RevokeRefreshTokensByFamilyParams{
+			TokenFamily:   store.ParseUUID(tokenFamily),
+			RevokedReason: store.Ptr(reason),
 		})
-
-	if result.Error != nil {
-		panic(fmt.Errorf(
-			"revoke tokens by family: %w", result.Error,
-		))
-	}
-	return nil
+	})
 }
 
-func (r *refreshTokenRepository) CleanupExpired(
-	ctx context.Context,
-) (int64, error) {
-	result := r.db.WithContext(ctx).
-		Where("expires_at < ? AND revoked_at IS NULL", time.Now().UTC()).
-		Delete(&models.RefreshToken{})
-
-	if result.Error != nil {
-		panic(fmt.Errorf(
-			"cleanup expired tokens: %w", result.Error,
-		))
-	}
-	return result.RowsAffected, nil
+func (r *refreshTokenRepository) CleanupExpired(ctx context.Context) (int64, error) {
+	var n int64
+	err := r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		var err error
+		n, err = q.DeleteExpiredRefreshTokens(ctx)
+		return err
+	})
+	return n, err
 }

@@ -28,6 +28,12 @@ func New(pool *pgxpool.Pool) *Store {
 // Pool exposes the underlying pool for health checks and shutdown.
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
+// InTx reports whether ctx already carries an open store transaction.
+func InTx(ctx context.Context) bool {
+	_, ok := ctx.Value(txKey{}).(*db.Queries)
+	return ok
+}
+
 type (
 	txKey    struct{}
 	txRawKey struct{}

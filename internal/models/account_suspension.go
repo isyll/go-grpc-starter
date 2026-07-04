@@ -3,8 +3,6 @@ package models
 import (
 	"time"
 
-	"gorm.io/gorm"
-
 	"github.com/isyll/go-grpc-starter/pkg/idenc"
 )
 
@@ -46,13 +44,6 @@ func (s *AccountSuspension) IsActive() bool {
 		return true
 	}
 	return false
-}
-
-func (s *AccountSuspension) BeforeCreate(tx *gorm.DB) error {
-	if s.SuspendedAt.IsZero() {
-		s.SuspendedAt = time.Now()
-	}
-	return nil
 }
 
 func (s *AccountSuspension) ToResponse(

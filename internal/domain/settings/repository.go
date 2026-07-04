@@ -3,12 +3,15 @@ package settings
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
-	"github.com/isyll/go-grpc-starter/internal/models"
+	"github.com/jackc/pgx/v5"
 
-	"gorm.io/gorm"
+	"github.com/isyll/go-grpc-starter/gen/db"
+	"github.com/isyll/go-grpc-starter/internal/models"
+	"github.com/isyll/go-grpc-starter/internal/store"
 )
 
 type Repository interface {
@@ -18,34 +21,61 @@ type Repository interface {
 }
 
 type repository struct {
-	db *gorm.DB
+	store *store.Store
 }
 
-func NewRepository(db *gorm.DB) Repository {
-	return &repository{db: db}
+func NewRepository(s *store.Store) Repository {
+	return &repository{store: s}
 }
 
 func (r *repository) GetByUserID(ctx context.Context, userID int64) (*models.Settings, error) {
-	var row models.UserSettings
-	err := r.db.WithContext(ctx).First(&row, "user_id = ?", userID).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrSettingsNotFound
+	var out *models.Settings
+	err := r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		row, err := q.GetUserSettings(ctx, userID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrSettingsNotFound
+			}
+			return fmt.Errorf("get settings: %w", err)
 		}
-		panic(fmt.Errorf("get settings: %w", err))
-	}
-	return &row.Settings, nil
+		var s models.Settings
+		if err := json.Unmarshal(row.Settings, &s); err != nil {
+			return fmt.Errorf("unmarshal settings: %w", err)
+		}
+		out = &s
+		return nil
+	})
+	return out, err
 }
 
-func (r *repository) Create(ctx context.Context, s *models.UserSettings) error {
-	if err := r.db.WithContext(ctx).Create(s).Error; err != nil {
-		return fmt.Errorf("create settings: %w", err)
-	}
-	return nil
+func (r *repository) Create(ctx context.Context, us *models.UserSettings) error {
+	return r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		b, err := json.Marshal(&us.Settings)
+		if err != nil {
+			return fmt.Errorf("marshal settings: %w", err)
+		}
+		if err := q.CreateUserSettings(ctx, db.CreateUserSettingsParams{
+			UserID:   us.UserID,
+			Settings: b,
+		}); err != nil {
+			return fmt.Errorf("create settings: %w", err)
+		}
+		return nil
+	})
 }
 
 func (r *repository) Update(ctx context.Context, userID int64, s models.Settings) error {
-	return r.db.WithContext(ctx).Model(&models.UserSettings{}).
-		Where("user_id = ?", userID).
-		Update("settings", &s).Error
+	return r.store.Run(ctx, func(ctx context.Context, q *db.Queries) error {
+		b, err := json.Marshal(&s)
+		if err != nil {
+			return fmt.Errorf("marshal settings: %w", err)
+		}
+		if err := q.UpdateUserSettings(ctx, db.UpdateUserSettingsParams{
+			UserID:   userID,
+			Settings: b,
+		}); err != nil {
+			return fmt.Errorf("update settings: %w", err)
+		}
+		return nil
+	})
 }

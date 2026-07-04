@@ -12,7 +12,7 @@ func WireEventSubscriptions(bus *events.Bus, deps *EventHandlerDeps) {
 	cacheInv := handlers.NewCacheInvalidator(deps.CacheManager, deps.Logger)
 	events.Subscribe(bus, cacheInv.OnUserAccountDeleted)
 
-	audit := handlers.NewAuditLogHandler(deps.DB, deps.Logger)
+	audit := handlers.NewAuditLogHandler(deps.Store, deps.Logger)
 	events.SubscribeAsync(
 		bus, audit.OnAuditLogWritten,
 		events.WithQueue("high"),
@@ -25,7 +25,7 @@ func WireEventSubscriptions(bus *events.Bus, deps *EventHandlerDeps) {
 		}),
 	)
 
-	attempts := handlers.NewAuthAttemptHandler(deps.DB, deps.Logger)
+	attempts := handlers.NewAuthAttemptHandler(deps.Store, deps.Logger)
 	events.SubscribeAsync(
 		bus, attempts.OnAuthAttemptRecorded,
 		events.WithQueue("normal"),
