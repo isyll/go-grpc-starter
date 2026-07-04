@@ -11,7 +11,8 @@
   "files.associations": {
     "*.sqlfluffignore": "ignore",
     "**/buf.yaml": "yaml",
-    "**/buf.gen.yaml": "yaml"
+    "**/buf.gen.yaml": "yaml",
+    "**/buf.lock": "yaml"
   },
   "search.exclude": { "gen/**": true },
   "yaml.schemas": {},
