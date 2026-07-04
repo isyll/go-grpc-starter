@@ -10,6 +10,7 @@ import (
 	"github.com/isyll/go-grpc-starter/internal/errs"
 	"github.com/isyll/go-grpc-starter/internal/errs/codes"
 	"github.com/isyll/go-grpc-starter/internal/notifications"
+	"github.com/isyll/go-grpc-starter/internal/reqctx"
 	"github.com/isyll/go-grpc-starter/internal/settings"
 	"github.com/isyll/go-grpc-starter/internal/users"
 	"github.com/isyll/go-grpc-starter/pkg/idenc"
@@ -35,7 +36,7 @@ func NewUserServer(
 }
 
 func (s *UserServer) GetMe(ctx context.Context, _ *emptypb.Empty) (*apiv1.User, error) {
-	u, err := s.users.Get(ctx, currentUserID(ctx))
+	u, err := s.users.Get(ctx, reqctx.SubjectFrom(ctx).UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +44,7 @@ func (s *UserServer) GetMe(ctx context.Context, _ *emptypb.Empty) (*apiv1.User, 
 }
 
 func (s *UserServer) UpdateMe(ctx context.Context, req *apiv1.UpdateMeRequest) (*apiv1.User, error) {
-	u, err := s.users.UpdateProfile(ctx, currentUserID(ctx), users.ProfileUpdate{
+	u, err := s.users.UpdateProfile(ctx, reqctx.SubjectFrom(ctx).UserID, users.ProfileUpdate{
 		FirstName: req.FirstName,
 		LastName:  req.LastName,
 		Bio:       req.Bio,
@@ -56,7 +57,7 @@ func (s *UserServer) UpdateMe(ctx context.Context, req *apiv1.UpdateMeRequest) (
 }
 
 func (s *UserServer) DeleteMe(ctx context.Context, _ *emptypb.Empty) (*emptypb.Empty, error) {
-	if err := s.users.DeleteAccount(ctx, currentUserID(ctx)); err != nil {
+	if err := s.users.DeleteAccount(ctx, reqctx.SubjectFrom(ctx).UserID); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -76,7 +77,7 @@ func (s *UserServer) GetUser(ctx context.Context, req *apiv1.GetUserRequest) (*a
 
 func (s *UserServer) UploadAvatar(stream apiv1.UserService_UploadAvatarServer) error {
 	ctx := stream.Context()
-	userID := currentUserID(ctx)
+	userID := reqctx.SubjectFrom(ctx).UserID
 
 	var (
 		contentType string
@@ -114,7 +115,7 @@ func (s *UserServer) UploadAvatar(stream apiv1.UserService_UploadAvatarServer) e
 }
 
 func (s *UserServer) GetSettings(ctx context.Context, _ *emptypb.Empty) (*apiv1.Settings, error) {
-	set, err := s.settings.Get(ctx, currentUserID(ctx))
+	set, err := s.settings.Get(ctx, reqctx.SubjectFrom(ctx).UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,14 +123,14 @@ func (s *UserServer) GetSettings(ctx context.Context, _ *emptypb.Empty) (*apiv1.
 }
 
 func (s *UserServer) UpdateSettings(ctx context.Context, req *apiv1.Settings) (*apiv1.Settings, error) {
-	if err := s.settings.Update(ctx, currentUserID(ctx), fromProtoSettings(req)); err != nil {
+	if err := s.settings.Update(ctx, reqctx.SubjectFrom(ctx).UserID, fromProtoSettings(req)); err != nil {
 		return nil, err
 	}
 	return req, nil
 }
 
 func (s *UserServer) RegisterPushToken(ctx context.Context, req *apiv1.RegisterPushTokenRequest) (*emptypb.Empty, error) {
-	err := s.notifs.RegisterToken(ctx, currentUserID(ctx), notifications.RegisterTokenInput{
+	err := s.notifs.RegisterToken(ctx, reqctx.SubjectFrom(ctx).UserID, notifications.RegisterTokenInput{
 		DeviceID:   req.GetDeviceId(),
 		Token:      req.GetToken(),
 		Platform:   notifications.NotificationPlatform(req.GetPlatform()),
@@ -142,7 +143,7 @@ func (s *UserServer) RegisterPushToken(ctx context.Context, req *apiv1.RegisterP
 }
 
 func (s *UserServer) GetNotificationPreferences(ctx context.Context, _ *emptypb.Empty) (*apiv1.NotificationPreferences, error) {
-	prefs, err := s.notifs.GetPreferences(ctx, currentUserID(ctx))
+	prefs, err := s.notifs.GetPreferences(ctx, reqctx.SubjectFrom(ctx).UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +153,7 @@ func (s *UserServer) GetNotificationPreferences(ctx context.Context, _ *emptypb.
 func (s *UserServer) UpdateNotificationPreferences(ctx context.Context, req *apiv1.NotificationPreferences) (*apiv1.NotificationPreferences, error) {
 	push, email, marketing, qenabled := req.GetPush(), req.GetEmail(), req.GetMarketing(), req.GetQuietHoursEnabled()
 	start, end, tz := req.GetQuietHoursStart(), req.GetQuietHoursEnd(), req.GetTimezone()
-	prefs, err := s.notifs.UpdatePreferences(ctx, currentUserID(ctx), notifications.PreferencesUpdate{
+	prefs, err := s.notifs.UpdatePreferences(ctx, reqctx.SubjectFrom(ctx).UserID, notifications.PreferencesUpdate{
 		Push:              &push,
 		Email:             &email,
 		Marketing:         &marketing,

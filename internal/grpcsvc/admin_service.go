@@ -113,7 +113,7 @@ func (s *AdminServer) SetUserRole(ctx context.Context, req *apiv1.SetUserRoleReq
 
 func (s *AdminServer) audit(ctx context.Context, action, resourceID string) {
 	_ = s.bus.Publish(ctx, &event.AuditLogWritten{
-		AdminID:    currentUserID(ctx),
+		AdminID:    reqctx.SubjectFrom(ctx).UserID,
 		Action:     action,
 		Resource:   "user",
 		ResourceID: resourceID,

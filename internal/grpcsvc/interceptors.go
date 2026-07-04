@@ -105,8 +105,6 @@ func (i *interceptors) authUnary(
 		return nil, status.Error(codes.PermissionDenied, "auth.admin_required")
 	}
 
-	ctx = withUser(ctx, user)
-	ctx = withSessionID(ctx, session.ID)
 	ctx = reqctx.WithSubject(ctx, reqctx.Subject{
 		UserID:    user.ID,
 		Role:      reqctx.Role(user.Role),

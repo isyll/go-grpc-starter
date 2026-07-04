@@ -5,6 +5,7 @@ import (
 
 	apiv1 "github.com/isyll/go-grpc-starter/gen/api/v1"
 	"github.com/isyll/go-grpc-starter/internal/auth"
+	"github.com/isyll/go-grpc-starter/internal/reqctx"
 	"github.com/isyll/go-grpc-starter/pkg/idenc"
 
 	"google.golang.org/grpc/metadata"
@@ -58,7 +59,7 @@ func (s *AuthServer) RefreshToken(ctx context.Context, req *apiv1.RefreshTokenRe
 
 func (s *AuthServer) Logout(ctx context.Context, _ *emptypb.Empty) (*emptypb.Empty, error) {
 	token, _ := bearerToken(ctx)
-	s.svc.Logout(ctx, sessionIDFrom(ctx), token)
+	s.svc.Logout(ctx, reqctx.SubjectFrom(ctx).SessionID, token)
 	return &emptypb.Empty{}, nil
 }
 
@@ -70,7 +71,7 @@ func (s *AuthServer) VerifyEmail(ctx context.Context, req *apiv1.VerifyEmailRequ
 }
 
 func (s *AuthServer) ResendVerification(ctx context.Context, _ *emptypb.Empty) (*emptypb.Empty, error) {
-	if err := s.svc.ResendVerification(ctx, currentUserID(ctx)); err != nil {
+	if err := s.svc.ResendVerification(ctx, reqctx.SubjectFrom(ctx).UserID); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -91,19 +92,19 @@ func (s *AuthServer) ResetPassword(ctx context.Context, req *apiv1.ResetPassword
 }
 
 func (s *AuthServer) ChangePassword(ctx context.Context, req *apiv1.ChangePasswordRequest) (*emptypb.Empty, error) {
-	if err := s.svc.ChangePassword(ctx, currentUserID(ctx), req.GetCurrentPassword(), req.GetNewPassword()); err != nil {
+	if err := s.svc.ChangePassword(ctx, reqctx.SubjectFrom(ctx).UserID, req.GetCurrentPassword(), req.GetNewPassword()); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
 }
 
 func (s *AuthServer) ListDevices(ctx context.Context, _ *emptypb.Empty) (*apiv1.ListDevicesResponse, error) {
-	devices := s.svc.ListDevices(ctx, currentUserID(ctx), sessionIDFrom(ctx))
+	devices := s.svc.ListDevices(ctx, reqctx.SubjectFrom(ctx).UserID, reqctx.SubjectFrom(ctx).SessionID)
 	return &apiv1.ListDevicesResponse{Devices: toProtoDevices(devices)}, nil
 }
 
 func (s *AuthServer) RevokeDevice(ctx context.Context, req *apiv1.RevokeDeviceRequest) (*emptypb.Empty, error) {
-	if err := s.svc.RemoveDevice(ctx, currentUserID(ctx), req.GetDeviceId(), sessionIDFrom(ctx)); err != nil {
+	if err := s.svc.RemoveDevice(ctx, reqctx.SubjectFrom(ctx).UserID, req.GetDeviceId(), reqctx.SubjectFrom(ctx).SessionID); err != nil {
 		return nil, err
 	}
 	return &emptypb.Empty{}, nil
@@ -122,13 +123,6 @@ func deviceInfo(ctx context.Context, d *apiv1.DeviceInfo) auth.DeviceInfo {
 		info.Manufacturer = d.GetManufacturer()
 	}
 	return info
-}
-
-func currentUserID(ctx context.Context) int64 {
-	if u, ok := userFrom(ctx); ok {
-		return u.ID
-	}
-	return 0
 }
 
 func clientIP(ctx context.Context) string {
