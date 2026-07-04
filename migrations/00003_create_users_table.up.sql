@@ -52,8 +52,8 @@ FOR EACH ROW EXECUTE FUNCTION public.prevent_update_created_at();
 
 -- Row-level security. The app role has full access (the API only ever
 -- returns the authenticated user's own data); the read-only role is
--- limited to SELECT. The app.current_user_id GUC set by the GORM RLS
--- callback is available if you want to tighten a policy to owner-only.
+-- limited to SELECT. The app.current_user_id GUC set per transaction by
+-- the store layer is available if you want to tighten a policy to owner-only.
 ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth.users FORCE ROW LEVEL SECURITY;
 

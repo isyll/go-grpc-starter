@@ -1,2 +1,2 @@
-// Package firebase wraps the Firebase Admin SDK (auth, storage, FCM).
+// Package firebase wraps the Firebase Admin SDK for push notifications (FCM).
 package firebase

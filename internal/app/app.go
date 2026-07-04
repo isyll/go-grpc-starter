@@ -116,7 +116,7 @@ func (a *App) initStorage(cfgs *config.Configs, logx *logger.Logger) storage.Sto
 }
 
 func (a *App) initFCM(cfgs *config.Configs, logx *logger.Logger) *messaging.Client {
-	fb, err := firebase.NewClient(cfgs.Firebase, logx)
+	fb, err := firebase.NewClient(cfgs.Firebase)
 	if err != nil {
 		logx.Warn("firebase disabled (push notifications off)", "error", err)
 		return nil

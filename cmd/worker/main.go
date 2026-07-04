@@ -119,7 +119,7 @@ func main() {
 }
 
 func initFCM(cfg *config.Configs, logx *logger.Logger) *messaging.Client {
-	fb, err := firebase.NewClient(cfg.Firebase, logx)
+	fb, err := firebase.NewClient(cfg.Firebase)
 	if err != nil {
 		logx.Warn("push worker disabled: firebase init failed", "error", err)
 		return nil

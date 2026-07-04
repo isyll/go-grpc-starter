@@ -63,8 +63,8 @@ EXECUTE FUNCTION prevent_user_status_history_delete();
 -- log_user_role_change (000010) and log_phone_change (000011).
 --
 -- The actor and reason are recovered from transaction-local GUCs:
---   - app.current_user_id : caller's user id, set by the GORM RLS
---                            callback ('0' for admin / anonymous);
+--   - app.current_user_id : caller's user id, set per transaction by
+--                            the store layer ('0' for admin / anonymous);
 --                            recorded as changed_by (NULL when 0, so
 --                            admin/system transitions have no FK).
 --   - app.change_reason   : free-form reason set with SET LOCAL by the
