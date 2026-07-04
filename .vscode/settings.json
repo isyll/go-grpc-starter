@@ -11,7 +11,8 @@
   "files.associations": {
     "*.proto": "proto3",
     "*.sqlfluffignore": "ignore",
-    "*.yaml": "yaml"
+    "**/buf.yaml": "yaml",
+    "**/buf.gen.yaml": "yaml"
   },
   "search.exclude": { "internal/gen/**": true },
   "yaml.schemas": {},
