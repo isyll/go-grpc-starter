@@ -4,6 +4,18 @@ app:
 
 server:
   port: ${SERVER_PORT:-8080}
+  reflection: ${GRPC_REFLECTION:-true}
+  max_recv_msg_size_bytes: ${GRPC_MAX_RECV_BYTES:-4194304}
+  max_send_msg_size_bytes: ${GRPC_MAX_SEND_BYTES:-4194304}
+  connection_timeout: ${GRPC_CONNECTION_TIMEOUT:-120s}
+  keepalive:
+    time: ${GRPC_KEEPALIVE_TIME:-2h}
+    timeout: ${GRPC_KEEPALIVE_TIMEOUT:-20s}
+    max_connection_idle: ${GRPC_MAX_CONNECTION_IDLE:-15m}
+    max_connection_age: ${GRPC_MAX_CONNECTION_AGE:-30m}
+    max_connection_age_grace: ${GRPC_MAX_CONNECTION_AGE_GRACE:-5m}
+    min_client_interval: ${GRPC_KEEPALIVE_MIN_CLIENT_INTERVAL:-5m}
+  shutdown_grace: ${GRPC_SHUTDOWN_GRACE:-20s}
 
 i18n:
   default_language: ${DEFAULT_LANGUAGE:-en}

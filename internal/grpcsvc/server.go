@@ -2,6 +2,7 @@ package grpcsvc
 
 import (
 	"net"
+	"time"
 
 	adminv1 "github.com/isyll/go-grpc-starter/gen/admin/v1"
 	authv1 "github.com/isyll/go-grpc-starter/gen/auth/v1"
@@ -17,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -34,6 +36,7 @@ type Deps struct {
 
 type Server struct {
 	grpc   *grpc.Server
+	health *health.Server
 	logger *logger.Logger
 }
 
@@ -46,7 +49,11 @@ func New(d Deps) *Server {
 		Locale:   d.Locale,
 	})
 
-	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(ic.Unary()...))
+	opts := append(
+		serverOptions(d.Config),
+		grpc.ChainUnaryInterceptor(ic.Unary()...),
+	)
+	srv := grpc.NewServer(opts...)
 
 	authv1.RegisterAuthServiceServer(srv, d.Auth)
 	userv1.RegisterUserServiceServer(srv, d.User)
@@ -57,15 +64,72 @@ func New(d Deps) *Server {
 	hs.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 	healthpb.RegisterHealthServer(srv, hs)
 
-	reflection.Register(srv)
+	if d.Config.App.Server.Reflection {
+		reflection.Register(srv)
+	}
 
-	return &Server{grpc: srv, logger: d.Logger}
+	return &Server{grpc: srv, health: hs, logger: d.Logger}
+}
+
+// serverOptions maps config onto grpc.ServerOptions. Zero config values keep
+// the grpc-go defaults.
+func serverOptions(cfg *config.Configs) []grpc.ServerOption {
+	sc := cfg.App.Server
+	var opts []grpc.ServerOption
+
+	if sc.MaxRecvMsgSizeBytes > 0 {
+		opts = append(opts, grpc.MaxRecvMsgSize(sc.MaxRecvMsgSizeBytes))
+	}
+	if sc.MaxSendMsgSizeBytes > 0 {
+		opts = append(opts, grpc.MaxSendMsgSize(sc.MaxSendMsgSizeBytes))
+	}
+	if sc.ConnectionTimeout > 0 {
+		opts = append(opts, grpc.ConnectionTimeout(sc.ConnectionTimeout))
+	}
+
+	ka := sc.Keepalive
+	kp := keepalive.ServerParameters{
+		Time:                  ka.Time,
+		Timeout:               ka.Timeout,
+		MaxConnectionIdle:     ka.MaxConnectionIdle,
+		MaxConnectionAge:      ka.MaxConnectionAge,
+		MaxConnectionAgeGrace: ka.MaxConnectionAgeGrace,
+	}
+	if kp != (keepalive.ServerParameters{}) {
+		opts = append(opts, grpc.KeepaliveParams(kp))
+	}
+	if ka.MinClientInterval > 0 {
+		opts = append(opts, grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             ka.MinClientInterval,
+			PermitWithoutStream: true,
+		}))
+	}
+	return opts
 }
 
 func (s *Server) Serve(lis net.Listener) error {
 	return s.grpc.Serve(lis)
 }
 
-func (s *Server) GracefulStop() {
-	s.grpc.GracefulStop()
+// Shutdown flips the health service to NOT_SERVING so load balancers stop
+// routing new work, then drains in-flight RPCs. If draining exceeds grace the
+// remaining connections are closed forcibly.
+func (s *Server) Shutdown(grace time.Duration) {
+	s.health.Shutdown()
+
+	if grace <= 0 {
+		grace = 20 * time.Second
+	}
+	done := make(chan struct{})
+	go func() {
+		s.grpc.GracefulStop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(grace):
+		s.logger.Warn("graceful stop exceeded grace period; forcing stop", "grace", grace.String())
+		s.grpc.Stop()
+		<-done
+	}
 }

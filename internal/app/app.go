@@ -225,7 +225,7 @@ func (a *App) AwaitShutdown() {
 	a.Infra.Logger.Info("shutdown signal received", "signal", sig.String())
 
 	a.bgCancel()
-	a.server.GracefulStop()
+	a.server.Shutdown(a.Infra.Config.App.Server.ShutdownGrace)
 
 	if a.obs != nil {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

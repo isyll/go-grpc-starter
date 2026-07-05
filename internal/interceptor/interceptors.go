@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -58,14 +59,15 @@ func New(c Config) *Set {
 	return s
 }
 
-// Unary returns the interceptor chain in outermost-to-innermost order.
+// Unary returns the interceptor chain in outermost-to-innermost order. The
+// request id is resolved before logging so every log line can carry it.
 func (i *Set) Unary() []grpc.UnaryServerInterceptor {
 	return []grpc.UnaryServerInterceptor{
 		i.recoveryUnary,
+		i.requestIDUnary,
 		i.loggingUnary,
 		i.localeUnary,
 		i.errorUnary,
-		i.requestIDUnary,
 		i.authUnary,
 	}
 }
@@ -231,13 +233,44 @@ func (i *Set) loggingUnary(
 ) (any, error) {
 	start := time.Now()
 	resp, err := handler(ctx, req)
-	i.logger.Info(
-		"grpc",
+
+	if isHealthMethod(info.FullMethod) {
+		return resp, err
+	}
+
+	code := status.Code(err)
+	fields := []any{
 		"method", info.FullMethod,
-		"code", status.Code(err).String(),
+		"code", code.String(),
 		"duration", time.Since(start).String(),
-	)
+		"request_id", reqctx.RequestIDFromContext(ctx),
+	}
+	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+		fields = append(fields, "peer", p.Addr.String())
+	}
+	if isServerFailure(code) {
+		i.logger.Error("grpc", fields...)
+	} else {
+		i.logger.Info("grpc", fields...)
+	}
 	return resp, err
+}
+
+// isHealthMethod filters liveness probes out of the request log.
+func isHealthMethod(fullMethod string) bool {
+	return strings.HasPrefix(fullMethod, "/grpc.health.v1.Health/") ||
+		strings.HasPrefix(fullMethod, "/health.v1.HealthService/")
+}
+
+// isServerFailure reports whether the code indicates a server-side fault
+// worth alerting on, as opposed to a client mistake.
+func isServerFailure(code codes.Code) bool {
+	switch code {
+	case codes.Internal, codes.Unknown, codes.DataLoss, codes.Unavailable:
+		return true
+	default:
+		return false
+	}
 }
 
 func incomingRequestID(ctx context.Context) string {
