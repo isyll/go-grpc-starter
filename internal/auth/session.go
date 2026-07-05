@@ -9,6 +9,9 @@ import (
 	"github.com/isyll/go-grpc-starter/internal/users"
 )
 
+// createSessionAndTokens creates the device session and its first refresh
+// token atomically. The access token lives in Redis; if the transaction rolls
+// back after it was issued, the orphan simply expires with its TTL.
 func (s *Service) createSessionAndTokens(
 	ctx context.Context,
 	user *users.User,
@@ -18,13 +21,21 @@ func (s *Service) createSessionAndTokens(
 	s.evictOldestIfOverLimit(ctx, user.ID)
 
 	session := device.toSession(user.ID)
-	s.sessions.Create(ctx, session)
-	session.User = *user
+	var tokens *TokenPair
+	err := s.tx.WithTx(ctx, func(ctx context.Context) error {
+		if err := s.sessions.Create(ctx, session); err != nil {
+			return err
+		}
+		session.User = *user
 
-	tokens, err := s.generateTokenPair(ctx, user, session, settings)
+		var err error
+		tokens, err = s.generateTokenPair(ctx, user, session, settings)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
+
 	if err := s.cacheManager.Set(
 		ctx, cache.SessionDataKey(session.ID), session, cache.CacheLong,
 	); err != nil {
@@ -52,10 +63,13 @@ func (s *Service) ListDevices(
 	ctx context.Context,
 	userID int64,
 	currentSessionID int64,
-) []DeviceSessionInfo {
-	sessions := s.sessions.FindActiveDevicesByUser(
+) ([]DeviceSessionInfo, error) {
+	sessions, err := s.sessions.FindActiveDevicesByUser(
 		ctx, userID, s.cfg.Security.Auth.MaxInactivityTimeout,
 	)
+	if err != nil {
+		return nil, err
+	}
 	infos := make([]DeviceSessionInfo, len(sessions))
 	for i := range sessions {
 		infos[i] = DeviceSessionInfo{
@@ -69,7 +83,7 @@ func (s *Service) ListDevices(
 			Current:      sessions[i].ID == currentSessionID,
 		}
 	}
-	return infos
+	return infos, nil
 }
 
 func (s *Service) RemoveDevice(
@@ -78,9 +92,9 @@ func (s *Service) RemoveDevice(
 	deviceID string,
 	currentSessionID int64,
 ) error {
-	session := s.sessions.FindByUserAndDeviceID(ctx, userID, deviceID)
-	if session == nil {
-		return ErrSessionNotFound
+	session, err := s.sessions.FindByUserAndDeviceID(ctx, userID, deviceID)
+	if err != nil {
+		return err
 	}
 	if session.ID == currentSessionID {
 		return ErrCannotRemoveCurrentDevice
@@ -89,9 +103,12 @@ func (s *Service) RemoveDevice(
 }
 
 func (s *Service) RevokeAllSessions(ctx context.Context, userID int64, reason string) error {
-	sessions := s.sessions.FindActiveDevicesByUser(
+	sessions, err := s.sessions.FindActiveDevicesByUser(
 		ctx, userID, s.cfg.Security.Auth.MaxInactivityTimeout,
 	)
+	if err != nil {
+		return err
+	}
 	for i := range sessions {
 		if err := s.revokeSessionAndTokens(ctx, &sessions[i], reason); err != nil {
 			s.logger.Error("revoke session failed", "session_id", sessions[i].ID, "error", err)
@@ -100,22 +117,42 @@ func (s *Service) RevokeAllSessions(ctx context.Context, userID int64, reason st
 	return nil
 }
 
-func (s *Service) GetDeviceSession(
-	ctx context.Context,
-	userID int64,
-	deviceID string,
-) *DeviceSession {
-	return s.sessions.FindByUserAndDeviceID(ctx, userID, deviceID)
+// RevokeOtherSessions revokes every active session except keepSessionID.
+// Used after a password change so other devices must re-authenticate.
+func (s *Service) RevokeOtherSessions(
+	ctx context.Context, userID, keepSessionID int64, reason string,
+) error {
+	sessions, err := s.sessions.FindActiveDevicesByUser(
+		ctx, userID, s.cfg.Security.Auth.MaxInactivityTimeout,
+	)
+	if err != nil {
+		return err
+	}
+	for i := range sessions {
+		if sessions[i].ID == keepSessionID {
+			continue
+		}
+		if err := s.revokeSessionAndTokens(ctx, &sessions[i], reason); err != nil {
+			s.logger.Error("revoke session failed", "session_id", sessions[i].ID, "error", err)
+		}
+	}
+	return nil
 }
 
+// evictOldestIfOverLimit enforces the per-user device cap. Eviction is best
+// effort: a listing failure must not block a login.
 func (s *Service) evictOldestIfOverLimit(ctx context.Context, userID int64) {
 	maxDevices := s.cfg.Security.Auth.MaxDevicesPerUser
 	if maxDevices <= 0 {
 		return
 	}
-	sessions := s.sessions.FindActiveDevicesByUser(
+	sessions, err := s.sessions.FindActiveDevicesByUser(
 		ctx, userID, s.cfg.Security.Auth.MaxInactivityTimeout,
 	)
+	if err != nil {
+		s.logger.Warn("device-limit check failed; skipping eviction", "error", err, "user_id", userID)
+		return
+	}
 	for len(sessions) >= maxDevices {
 		oldest := &sessions[len(sessions)-1]
 		if err := s.revokeSessionAndTokens(ctx, oldest, "device_limit"); err != nil {

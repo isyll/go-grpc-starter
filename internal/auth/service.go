@@ -25,6 +25,7 @@ type Service struct {
 	logger       *logger.Logger
 	atManager    apptoken.AccessTokenManager
 	cacheManager *cache.CacheManager
+	tx           TxRunner
 	users        UserStore
 	sessions     DeviceSessionRepository
 	settings     SettingsStore
@@ -39,6 +40,7 @@ func NewService(
 	logx *logger.Logger,
 	atManager apptoken.AccessTokenManager,
 	cacheManager *cache.CacheManager,
+	tx TxRunner,
 	users UserStore,
 	sessions DeviceSessionRepository,
 	settings SettingsStore,
@@ -52,6 +54,7 @@ func NewService(
 		logger:       logx,
 		atManager:    atManager,
 		cacheManager: cacheManager,
+		tx:           tx,
 		users:        users,
 		sessions:     sessions,
 		settings:     settings,
@@ -89,21 +92,29 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*TokenPair, e
 		Status:       users.UserStatusActive,
 		Role:         users.UserRoleUser,
 	}
-	if err := s.users.Create(ctx, user); err != nil {
-		return nil, err
-	}
 
 	defaults := settings.DefaultSettings()
-	if err := s.settings.Create(ctx, &settings.UserSettings{
-		UserID:   user.ID,
-		Settings: defaults,
-	}); err != nil {
+	var tokens *TokenPair
+	err = s.tx.WithTx(ctx, func(ctx context.Context) error {
+		if err := s.users.Create(ctx, user); err != nil {
+			return err
+		}
+		if err := s.settings.Create(ctx, &settings.UserSettings{
+			UserID:   user.ID,
+			Settings: defaults,
+		}); err != nil {
+			return err
+		}
+		tokens, err = s.createSessionAndTokens(ctx, user, in.Device, &defaults)
+		return err
+	})
+	if err != nil {
 		return nil, err
 	}
 
 	s.sendVerification(ctx, user)
 
-	return s.createSessionAndTokens(ctx, user, in.Device, &defaults)
+	return tokens, nil
 }
 
 func (s *Service) Login(ctx context.Context, in LoginInput) (*TokenPair, error) {

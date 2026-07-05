@@ -7,6 +7,12 @@ import (
 	"github.com/isyll/go-grpc-starter/internal/users"
 )
 
+// TxRunner runs fn inside a single database transaction. Repository calls made
+// with the ctx passed to fn join that transaction. *store.Store satisfies it.
+type TxRunner interface {
+	WithTx(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
 type UserStore interface {
 	FindByEmail(ctx context.Context, email string) (*users.User, error)
 	ExistsByEmail(ctx context.Context, email string) bool

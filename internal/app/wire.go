@@ -39,6 +39,7 @@ func (a *App) buildGRPCDeps() grpcserver.Deps {
 		infra.Logger,
 		infra.AccessTokenManager,
 		infra.CacheManager,
+		infra.Store,
 		userRepo,
 		sessionRepo,
 		settingsRepo,

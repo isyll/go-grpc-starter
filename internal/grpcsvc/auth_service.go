@@ -101,7 +101,10 @@ func (s *AuthServer) ChangePassword(ctx context.Context, req *authv1.ChangePassw
 }
 
 func (s *AuthServer) ListDevices(ctx context.Context, _ *emptypb.Empty) (*authv1.ListDevicesResponse, error) {
-	devices := s.svc.ListDevices(ctx, reqctx.SubjectFrom(ctx).UserID, reqctx.SubjectFrom(ctx).SessionID)
+	devices, err := s.svc.ListDevices(ctx, reqctx.SubjectFrom(ctx).UserID, reqctx.SubjectFrom(ctx).SessionID)
+	if err != nil {
+		return nil, err
+	}
 	return &authv1.ListDevicesResponse{Devices: toProtoDevices(devices)}, nil
 }
 

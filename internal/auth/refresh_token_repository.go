@@ -10,7 +10,7 @@ import (
 )
 
 type RefreshTokenRepository interface {
-	Create(ctx context.Context, token *RefreshToken)
+	Create(ctx context.Context, token *RefreshToken) error
 	FindByTokenHash(ctx context.Context, tokenHash string) (*RefreshToken, error)
 	RevokeByTokenHash(ctx context.Context, tokenHash, reason string) error
 	RevokeBySessionID(ctx context.Context, sessionID int64, reason string) error
@@ -40,7 +40,7 @@ func toRefreshToken(r db.AuthRefreshToken) *RefreshToken {
 	}
 }
 
-func (r *refreshTokenRepository) Create(ctx context.Context, token *RefreshToken) {
+func (r *refreshTokenRepository) Create(ctx context.Context, token *RefreshToken) error {
 	prefix := token.TokenPrefix
 	if prefix == "" && len(token.TokenHash) >= 8 {
 		prefix = token.TokenHash[:8]
@@ -60,8 +60,9 @@ func (r *refreshTokenRepository) Create(ctx context.Context, token *RefreshToken
 		return nil
 	})
 	if err != nil {
-		panic(fmt.Errorf("create refresh token: %w", err))
+		return fmt.Errorf("create refresh token: %w", err)
 	}
+	return nil
 }
 
 func (r *refreshTokenRepository) FindByTokenHash(

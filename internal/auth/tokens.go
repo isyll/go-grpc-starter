@@ -49,18 +49,26 @@ func (s *Service) RefreshTokens(
 		return nil, ErrSessionNotFound
 	}
 
-	_ = s.refresh.RevokeByTokenHash(ctx, tokenHash, "rotated")
-
 	access, rawRefresh, newHash, err := s.issueTokenPair(ctx, session)
 	if err != nil {
 		return nil, err
 	}
-	s.refresh.Create(ctx, &RefreshToken{
-		SessionID:   session.ID,
-		TokenHash:   newHash,
-		TokenFamily: record.TokenFamily,
-		ExpiresAt:   time.Now().UTC().Add(s.cfg.Security.Auth.OAT.RefreshTokenExpiry),
+	// Rotate atomically: the old token is revoked and the replacement created
+	// in one transaction, so a crash in between cannot strand the session.
+	err = s.tx.WithTx(ctx, func(ctx context.Context) error {
+		if err := s.refresh.RevokeByTokenHash(ctx, tokenHash, "rotated"); err != nil {
+			return err
+		}
+		return s.refresh.Create(ctx, &RefreshToken{
+			SessionID:   session.ID,
+			TokenHash:   newHash,
+			TokenFamily: record.TokenFamily,
+			ExpiresAt:   time.Now().UTC().Add(s.cfg.Security.Auth.OAT.RefreshTokenExpiry),
+		})
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	settings, _ := s.settings.GetByUserID(ctx, session.UserID)
 	s.recordAttempt(ctx, session.User.Email, session.UserID, "refresh", "success")
@@ -84,12 +92,14 @@ func (s *Service) generateTokenPair(
 	if err != nil {
 		return nil, err
 	}
-	s.refresh.Create(ctx, &RefreshToken{
+	if err := s.refresh.Create(ctx, &RefreshToken{
 		SessionID:   session.ID,
 		TokenHash:   tokenHash,
 		TokenFamily: id.NewUUIDNoDash(),
 		ExpiresAt:   time.Now().UTC().Add(s.cfg.Security.Auth.OAT.RefreshTokenExpiry),
-	})
+	}); err != nil {
+		return nil, err
+	}
 	return &TokenPair{
 		AccessToken:  access,
 		RefreshToken: rawRefresh,
