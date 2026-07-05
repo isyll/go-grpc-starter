@@ -24,6 +24,14 @@ gateway:
 proto:
     @buf lint && buf generate
 
+# Check protos for breaking changes against main.
+proto-breaking:
+    @buf breaking --against ".git#branch=main"
+
+# Scan dependencies for known vulnerabilities.
+vuln:
+    @go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 # Generate sqlc code from migrations + queries.
 sqlc:
     @sqlc generate
