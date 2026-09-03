@@ -1,5 +1,5 @@
 # Build every binary, then copy them into a small runtime image.
-FROM golang:1.26 AS build
+FROM golang:1.27 AS build
 ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_DATE=unknown
